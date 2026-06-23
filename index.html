@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>ChunkMapper — 2D Map</title>
+
+  <link rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+        crossorigin="" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <header id="bar">
+    <span class="title">ChunkMapper Map</span>
+    <label class="toggle"><input type="checkbox" id="chunkGrid" /> Chunk grid</label>
+    <label class="toggle"><input type="checkbox" id="regionGrid" /> Region grid</label>
+    <a class="build-link" href="tiler.html">Build / update map ↗</a>
+  </header>
+
+  <div id="readout" class="readout">—</div>
+
+  <div id="noMap" class="overlay" hidden>
+    <div class="card">
+      <h1>No map loaded yet</h1>
+      <p>This site shows a Minecraft top-down map as fast, zoomable tiles. To add your map,
+         turn your rendered PNG into tiles first:</p>
+      <ol>
+        <li>Open <a href="tiler.html">the tiler</a>.</li>
+        <li>Drop your rendered <code>map_*.png</code> and click <b>Generate</b>.</li>
+        <li>Unzip the result here, next to <code>index.html</code> (you should get a
+            <code>tiles/</code> folder and a <code>map.json</code>), then reload.</li>
+      </ol>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+          integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+          crossorigin=""></script>
+  <script src="app.js"></script>
+</body>
+</html>

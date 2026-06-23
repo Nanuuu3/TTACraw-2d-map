@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ChunkMapper — Tile builder</title>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    body { display: grid; place-items: center; min-height: 100%; padding: 30px 16px; }
+    .builder {
+      width: min(640px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 28px 30px;
+    }
+    .builder h1 { margin: 0 0 6px; font-size: 22px; }
+    .builder .sub { color: var(--muted); margin: 0 0 22px; line-height: 1.5; }
+    #drop {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 30px;
+      text-align: center;
+      color: var(--muted);
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    #drop.hover { border-color: var(--accent); background: rgba(224,165,42,0.06); }
+    #drop b { color: var(--text); }
+    #drop .file { margin-top: 10px; color: var(--accent); font: 13px ui-monospace, Consolas, monospace; }
+    .fields { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin: 22px 0; }
+    .fields label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+    .fields input {
+      width: 100%;
+      padding: 9px 10px;
+      background: #0c0f13;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font: 14px ui-monospace, Consolas, monospace;
+    }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 4px; line-height: 1.4; }
+    .actions { display: flex; align-items: center; gap: 16px; margin-top: 8px; }
+    button {
+      padding: 11px 22px;
+      background: var(--accent);
+      color: #1a1205;
+      border: 0;
+      border-radius: 9px;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+    }
+    button:disabled { opacity: .5; cursor: default; }
+    .progress { flex: 1; height: 8px; background: #0c0f13; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .progress > div { height: 100%; width: 0; background: var(--accent); transition: width .1s; }
+    #status { margin-top: 14px; color: var(--muted); font-size: 13px; min-height: 18px; }
+    a.back { color: var(--accent); text-decoration: none; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div class="builder">
+    <h1>Build map tiles</h1>
+    <p class="sub">Turn a rendered <code>map_*.png</code> into the tile pyramid this site serves.
+       Everything runs in your browser — nothing is uploaded anywhere.</p>
+
+    <div id="drop">
+      <b>Drop your PNG here</b> or click to choose
+      <div class="file" id="fileName"></div>
+      <input type="file" id="file" accept="image/png,image/*" hidden />
+    </div>
+
+    <div class="fields">
+      <div>
+        <label for="ppb">Pixels per block</label>
+        <input type="number" id="ppb" value="1" min="0.0625" step="1" />
+      </div>
+      <div>
+        <label for="ox">Top-left world X</label>
+        <input type="number" id="ox" value="0" step="16" />
+      </div>
+      <div>
+        <label for="oz">Top-left world Z</label>
+        <input type="number" id="oz" value="0" step="16" />
+      </div>
+    </div>
+    <p class="hint">A 10000×10000-block "Max" render comes out at <b>1</b> pixel per block. The top-left
+       world coordinate is the north-west corner of the area you rendered (used for the coordinate readout
+       and grid). Leave it at 0/0 if you don't know it.</p>
+
+    <div class="actions">
+      <button id="go" disabled>Generate tiles</button>
+      <div class="progress"><div id="bar"></div></div>
+    </div>
+    <div id="status"></div>
+    <p style="margin-top:18px"><a class="back" href="index.html">← Back to the map</a></p>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="tiler.js"></script>
+</body>
+</html>
