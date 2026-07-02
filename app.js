@@ -53,13 +53,18 @@ function setupMap() {
   const ne = map.unproject([meta.width, 0], maxZoom);
   const bounds = new L.LatLngBounds(sw, ne);
 
-  L.tileLayer("tiles/{z}/{x}/{y}.png", {
+  // Tiles are served from "tiles/" next to this page by default, or from an external store (e.g.
+  // Cloudflare R2 / Backblaze B2) when map.json sets "tilesBaseUrl" — used for very large maps that
+  // are too big for GitHub Pages but whose viewer page can still live there.
+  const tileBase = (meta.tilesBaseUrl || "tiles").replace(/\/+$/, "");
+  L.tileLayer(tileBase + "/{z}/{x}/{y}.png", {
     tileSize,
     minZoom: meta.minZoom || 0,
     maxNativeZoom: maxZoom,
     bounds,
     noWrap: true,
     keepBuffer: 4,
+    crossOrigin: true,
     errorTileUrl: BLANK_TILE,
   }).addTo(map);
 

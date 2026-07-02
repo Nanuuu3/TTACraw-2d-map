@@ -1,0 +1,10 @@
+{
+  "width": 1984,
+  "height": 1616,
+  "tileSize": 256,
+  "minZoom": 0,
+  "maxZoom": 3,
+  "blocksPerPixel": 1.0,
+  "originBlockX": -1520,
+  "originBlockZ": -1088
+}
