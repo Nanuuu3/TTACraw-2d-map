@@ -122,3 +122,6 @@ html, body {
 }
 
 .leaflet-container { background: #0b0e12; }
+
+/* Keep the zoom (+/-) and other top-left controls clear of the header panel. */
+.leaflet-top.leaflet-left { margin-top: 52px; }
