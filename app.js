@@ -83,7 +83,7 @@ function setupMap() {
   map = L.map("map", {
     crs: L.CRS.Simple,
     minZoom: meta.minZoom || 0,
-    maxZoom: maxZoom + 2, // allow a couple of over-zoom levels (crisp, pixelated upscaling)
+    maxZoom: maxZoom + 4, // over-zoom levels for getting right up close (crisp, pixelated upscaling)
     zoomControl: true,
     attributionControl: false,
     zoomSnap: 0,
@@ -114,6 +114,9 @@ function setupMap() {
 
   map.setMaxBounds(bounds.pad(0.25));
   map.fitBounds(bounds);
+  // Don't let the map be zoomed out smaller than "whole map fills the view" — otherwise it shrinks
+  // into a small island surrounded by black.
+  map.setMinZoom(map.getBoundsZoom(bounds));
 
   setupGrid();
   setupReadout();
