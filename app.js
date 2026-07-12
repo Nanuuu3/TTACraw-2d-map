@@ -101,7 +101,10 @@ function setupMap() {
   // Cloudflare R2 / Backblaze B2) when map.json sets "tilesBaseUrl" — used for very large maps that
   // are too big for GitHub Pages but whose viewer page can still live there.
   const tileBase = (meta.tilesBaseUrl || "tiles").replace(/\/+$/, "");
-  L.tileLayer(tileBase + "/{z}/{x}/{y}.png", {
+  // Cache-buster: appending the export version means updating the map serves fresh tiles instead of
+  // browser-cached old ones (which otherwise show stale/duplicated tiles after an update).
+  const ver = meta.version ? "?v=" + encodeURIComponent(meta.version) : "";
+  L.tileLayer(tileBase + "/{z}/{x}/{y}.png" + ver, {
     tileSize,
     minZoom: meta.minZoom || 0,
     maxNativeZoom: maxZoom,

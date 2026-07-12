@@ -6,5 +6,6 @@
   "maxZoom": 5,
   "blocksPerPixel": 1.0,
   "originBlockX": -2640,
-  "originBlockZ": -2176
+  "originBlockZ": -2176,
+  "version": 20260712001
 }
