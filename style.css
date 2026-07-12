@@ -125,3 +125,32 @@ html, body {
 
 /* Keep the zoom (+/-) and other top-left controls clear of the header panel. */
 .leaflet-top.leaflet-left { margin-top: 52px; }
+
+/* Right-click coordinate/biome popup — themed to match the dark UI. */
+.coordPopup .leaflet-popup-content-wrapper {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+}
+.coordPopup .leaflet-popup-tip {
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.coordPopup .leaflet-popup-content {
+  margin: 10px 14px;
+  font: 13px/1.35 ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.coordPopup .cp-coord { font-weight: 600; font-size: 14px; }
+.coordPopup .cp-chunk { color: var(--muted); }
+.coordPopup .cp-biome {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  color: var(--accent);
+  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+}
+.coordPopup .cp-biome.cp-muted { color: var(--muted); font-style: italic; }
+.coordPopup a.leaflet-popup-close-button { color: var(--muted); }

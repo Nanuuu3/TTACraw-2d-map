@@ -12,6 +12,7 @@ const BLANK_TILE =
 
 let map = null;
 let meta = null;
+let biomes = null; // { originChunkX, originChunkZ, chunksX, chunksZ, blocksPerCell, palette, grid:Int32Array }
 let gridCanvas = null;
 let gridCtx = null;
 
@@ -29,7 +30,50 @@ async function init() {
     return;
   }
   meta = await res.json();
+  await loadBiomes();
   setupMap();
+}
+
+/** Loads the optional biomes.json sidecar (older exports won't have it) and decodes its RLE grid. */
+async function loadBiomes() {
+  try {
+    const res = await fetch("biomes.json", { cache: "no-store" });
+    if (!res || !res.ok) return;
+    const b = await res.json();
+    const grid = new Int32Array(b.chunksX * b.chunksZ);
+    const rle = b.rle || [];
+    let at = 0;
+    for (let i = 0; i + 1 < rle.length; i += 2) {
+      const count = rle[i];
+      const value = rle[i + 1];
+      grid.fill(value, at, at + count);
+      at += count;
+    }
+    b.grid = grid;
+    biomes = b;
+  } catch (e) {
+    /* no biome data — coordinates still work, biome shows as unavailable */
+  }
+}
+
+/** Biome id (e.g. "minecraft:plains") at a world block, or null if unknown / no biome data. */
+function biomeAt(blockX, blockZ) {
+  if (!biomes) return null;
+  const col = Math.floor(blockX / biomes.blocksPerCell) - biomes.originChunkX;
+  const row = Math.floor(blockZ / biomes.blocksPerCell) - biomes.originChunkZ;
+  if (col < 0 || col >= biomes.chunksX || row < 0 || row >= biomes.chunksZ) return null;
+  const slot = biomes.grid[row * biomes.chunksX + col];
+  if (!slot) return null; // 0 = unknown
+  return biomes.palette[slot] || null;
+}
+
+/** "minecraft:snowy_taiga" -> "Snowy Taiga". */
+function prettyBiome(id) {
+  return id
+    .replace(/^.*:/, "")
+    .split("_")
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
 }
 
 function setupMap() {
@@ -73,6 +117,36 @@ function setupMap() {
 
   setupGrid();
   setupReadout();
+  setupContextPopup();
+}
+
+/* ----------------------------------------------------------------------- Right-click popup */
+
+/** Right-click anywhere to pin a popup with the block coordinates, chunk and biome at that point. */
+function setupContextPopup() {
+  map.on("contextmenu", (e) => {
+    const b = toBlock(e.latlng);
+    const bx = Math.floor(b.x);
+    const bz = Math.floor(b.z);
+    const cx = Math.floor(bx / 16);
+    const cz = Math.floor(bz / 16);
+    const biome = biomeAt(bx, bz);
+    const biomeLine = biomes
+      ? biome
+        ? `<div class="cp-biome">${prettyBiome(biome)}</div>`
+        : `<div class="cp-biome cp-muted">Biome unknown here</div>`
+      : `<div class="cp-biome cp-muted">No biome data in this map</div>`;
+
+    const html =
+      `<div class="cp-coord">X ${bx}, Z ${bz}</div>` +
+      `<div class="cp-chunk">chunk ${cx}, ${cz}</div>` +
+      biomeLine;
+
+    L.popup({ className: "coordPopup", closeButton: true, autoPan: false })
+      .setLatLng(e.latlng)
+      .setContent(html)
+      .openOn(map);
+  });
 }
 
 /* ----------------------------------------------------------------------- Coordinates */
