@@ -21,7 +21,6 @@
     <label class="toggle"><input type="checkbox" id="chunkGrid" /> Chunk grid</label>
     <label class="toggle"><input type="checkbox" id="regionGrid" /> Region grid</label>
     <button id="placesBtn" class="bar-btn" type="button">Places</button>
-    <a class="build-link" href="tiler.html">Build / update map ↗</a>
   </header>
 
   <div id="searchMsg" class="search-msg" hidden></div>
@@ -33,21 +32,29 @@
     </div>
     <div class="panel-body">
       <div id="placesList" class="places-list"></div>
-      <form id="placeForm" class="place-form">
-        <input id="pName" placeholder="Name (e.g. spawn)" autocomplete="off" required />
-        <div class="prow">
-          <input id="pX" placeholder="X" inputmode="numeric" required />
-          <input id="pZ" placeholder="Z" inputmode="numeric" required />
-        </div>
-        <div class="prow">
-          <input id="pSize" placeholder="Size (blocks)" inputmode="numeric" value="64" />
-          <input id="pColor" type="color" value="#e0a52a" title="Box colour" />
-        </div>
-        <button type="submit" class="wide">Add box</button>
-      </form>
-      <button id="placesExport" class="wide ghost" type="button">Export places.json</button>
-      <p class="hint">Saved in your browser. To show boxes to everyone, click Export and commit the
-        <code>places.json</code> file next to <code>index.html</code>.</p>
+      <p id="placesEmpty" class="hint" hidden>No places yet.</p>
+
+      <div id="placesEdit" hidden>
+        <form id="placeForm" class="place-form">
+          <input id="pName" placeholder="Name (e.g. spawn)" autocomplete="off" required />
+          <button id="pSelect" type="button" class="wide ghost">▧ Select area on the map</button>
+          <div id="pSelected" class="selected-note" hidden></div>
+          <div class="prow">
+            <input id="pX" placeholder="centre X" inputmode="numeric" required />
+            <input id="pZ" placeholder="centre Z" inputmode="numeric" required />
+          </div>
+          <div class="prow">
+            <input id="pW" placeholder="width" inputmode="numeric" value="64" />
+            <input id="pH" placeholder="height" inputmode="numeric" value="64" />
+            <input id="pColor" type="color" value="#e0a52a" title="Box colour" />
+          </div>
+          <button type="submit" class="wide">Add box</button>
+        </form>
+        <button id="placesExport" class="wide ghost" type="button">Export places.json</button>
+        <p class="hint">Saved in your browser. To show boxes to everyone, click Export and commit the
+          <code>places.json</code> file next to <code>index.html</code>.</p>
+        <button id="editLock" class="wide ghost" type="button">🔒 Lock editing</button>
+      </div>
     </div>
   </aside>
 

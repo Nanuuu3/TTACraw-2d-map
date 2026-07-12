@@ -15,13 +15,38 @@ let meta = null;
 let biomes = null; // { originChunkX, originChunkZ, chunksX, chunksZ, blocksPerCell, palette, grid:Int32Array }
 let gridCanvas = null;
 let gridCtx = null;
-let places = []; // user-added labelled boxes: { id, name, x, z, size, color }
+let places = []; // labelled boxes: { id, name, x, z, w, h, color }
 let placeLayer = null;
 let highlightBiome = null; // { index, name } while a biome-search highlight is showing
+
+// ── Owner-only editing ─────────────────────────────────────────────────────────
+// The published site is read-only for visitors: nobody but you can add/edit/delete places or change
+// what everyone sees (the public boxes live in the committed places.json, which only you can push to
+// GitHub). To unlock the editing tools on YOUR OWN computer, open the site with #edit in the URL —
+// e.g.  https://…/index.html#edit  — and it's remembered on this device afterwards.
+// For a little extra privacy, set OWNER_SECRET below and unlock with  #edit=yoursecret  instead.
+const OWNER_SECRET = ""; // e.g. "my-secret"; leave "" to unlock with just #edit
+const EDIT_KEY = "chunkmapper_edit";
+let editMode = false;
+
+function initEditMode() {
+  const hash = location.hash || "";
+  if (hash === "#lock") {
+    localStorage.removeItem(EDIT_KEY);
+  } else {
+    const m = hash.match(/^#edit(?:=(.*))?$/);
+    if (m && (OWNER_SECRET ? m[1] === OWNER_SECRET : true)) {
+      localStorage.setItem(EDIT_KEY, "1");
+    }
+  }
+  if (hash) history.replaceState(null, "", location.pathname + location.search); // hide token from URL
+  editMode = localStorage.getItem(EDIT_KEY) === "1";
+}
 
 init();
 
 async function init() {
+  initEditMode();
   let res = null;
   try {
     res = await fetch("map.json", { cache: "no-store" });
@@ -68,6 +93,13 @@ function biomeAt(blockX, blockZ) {
   const slot = biomes.grid[row * biomes.chunksX + col];
   if (!slot) return null; // 0 = unknown
   return biomes.palette[slot] || null;
+}
+
+/** Escapes text for safe insertion into HTML (place names go into a DivIcon's innerHTML). */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+  );
 }
 
 /** "minecraft:snowy_taiga" -> "Snowy Taiga". */
@@ -158,7 +190,9 @@ function setupContextPopup() {
       `<div class="cp-coord">X ${bx}, Z ${bz}</div>` +
       `<div class="cp-chunk">chunk ${cx}, ${cz}</div>` +
       biomeLine +
-      `<button class="cp-add" onclick="addPlaceHere(${bx}, ${bz})">+ Add place here</button>`;
+      (editMode
+        ? `<button class="cp-add" onclick="addPlaceHere(${bx}, ${bz})">+ Add place here</button>`
+        : "");
 
     L.popup({ className: "coordPopup", closeButton: true, autoPan: false })
       .setLatLng(e.latlng)
@@ -456,6 +490,9 @@ function setupPlaces() {
   loadPlaces();
   renderPlaces();
 
+  // Only the owner (edit mode) sees the add/edit/delete/export controls.
+  document.getElementById("placesEdit").hidden = !editMode;
+
   document.getElementById("placesBtn").addEventListener("click", () => {
     const panel = document.getElementById("placesPanel");
     panel.hidden = !panel.hidden;
@@ -463,23 +500,47 @@ function setupPlaces() {
   document.getElementById("placesClose").addEventListener("click", () => {
     document.getElementById("placesPanel").hidden = true;
   });
-  document.getElementById("placeForm").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const name = document.getElementById("pName").value.trim();
-    const x = parseInt(document.getElementById("pX").value, 10);
-    const z = parseInt(document.getElementById("pZ").value, 10);
-    const size = Math.max(1, parseInt(document.getElementById("pSize").value, 10) || 64);
-    const color = document.getElementById("pColor").value;
-    if (!name || Number.isNaN(x) || Number.isNaN(z)) {
-      showMsg("A box needs a name and numeric X and Z.");
-      return;
-    }
-    addPlace({ name, x, z, size, color });
-    e.target.reset();
-    document.getElementById("pSize").value = 64;
-    document.getElementById("pColor").value = color;
-  });
-  document.getElementById("placesExport").addEventListener("click", exportPlaces);
+
+  if (editMode) {
+    document.getElementById("placeForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = document.getElementById("pName").value.trim();
+      const x = parseInt(document.getElementById("pX").value, 10);
+      const z = parseInt(document.getElementById("pZ").value, 10);
+      const w = Math.max(1, parseInt(document.getElementById("pW").value, 10) || 64);
+      const h = Math.max(1, parseInt(document.getElementById("pH").value, 10) || 64);
+      const color = document.getElementById("pColor").value;
+      if (!name || Number.isNaN(x) || Number.isNaN(z)) {
+        showMsg("A box needs a name — use “Select area on the map” or type centre X and Z.");
+        return;
+      }
+      addPlace({ name, x, z, w, h, color });
+      resetPlaceForm(color);
+    });
+    document.getElementById("pSelect").addEventListener("click", startAreaSelect);
+    document.getElementById("placesExport").addEventListener("click", exportPlaces);
+    document.getElementById("editLock").addEventListener("click", () => {
+      localStorage.removeItem(EDIT_KEY);
+      location.reload();
+    });
+    map.on("mousedown", onSelectDown);
+    map.on("mousemove", onSelectMove);
+    map.on("mouseup", onSelectUp);
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && selecting) {
+        endAreaSelect();
+        showMsg("Selection cancelled.");
+      }
+    });
+  }
+}
+
+function resetPlaceForm(keepColor) {
+  document.getElementById("placeForm").reset();
+  document.getElementById("pW").value = 64;
+  document.getElementById("pH").value = 64;
+  document.getElementById("pColor").value = keepColor || "#e0a52a";
+  document.getElementById("pSelected").hidden = true;
 }
 
 function openPlacesPanel() {
@@ -487,14 +548,88 @@ function openPlacesPanel() {
 }
 
 function normalizePlace(p) {
+  const w = p.w || p.size || 64; // `size` = older square-box format
+  const h = p.h || p.size || 64;
   return {
     id: p.id || "p" + placeSeq++ + "_" + Date.now(),
     name: String(p.name || "?"),
     x: p.x | 0,
     z: p.z | 0,
-    size: p.size || 64,
+    w: w,
+    h: h,
     color: p.color || "#e0a52a",
   };
+}
+
+/* Pick a box by dragging a rectangle on the map (instead of typing coordinates). */
+let selecting = false;
+let selStart = null;
+let selRect = null;
+
+function startAreaSelect() {
+  selecting = true;
+  map.dragging.disable();
+  document.body.classList.add("selecting");
+  document.getElementById("pSelect").classList.add("arming");
+  showMsg("Drag on the map to mark the box (or click a spot for a default 64×64 box).");
+}
+
+function endAreaSelect() {
+  selecting = false;
+  map.dragging.enable();
+  document.body.classList.remove("selecting");
+  document.getElementById("pSelect").classList.remove("arming");
+  if (selRect) {
+    map.removeLayer(selRect);
+    selRect = null;
+  }
+  selStart = null;
+}
+
+function onSelectDown(e) {
+  if (!selecting) return;
+  selStart = e.latlng;
+  selRect = L.rectangle([selStart, selStart], {
+    color: "#ffd54a",
+    weight: 1,
+    dashArray: "4",
+    fillOpacity: 0.1,
+  }).addTo(map);
+}
+
+function onSelectMove(e) {
+  if (selecting && selStart && selRect) {
+    selRect.setBounds(L.latLngBounds(selStart, e.latlng));
+  }
+}
+
+function onSelectUp(e) {
+  if (!selecting || !selStart) return;
+  const a = toBlock(selStart);
+  const b = toBlock(e.latlng);
+  let w = Math.round(Math.abs(a.x - b.x));
+  let h = Math.round(Math.abs(a.z - b.z));
+  let cx, cz;
+  if (w < 2 && h < 2) {
+    // Treated as a click: a default box centred on the clicked block.
+    cx = Math.floor(b.x);
+    cz = Math.floor(b.z);
+    w = 64;
+    h = 64;
+  } else {
+    cx = Math.round((a.x + b.x) / 2);
+    cz = Math.round((a.z + b.z) / 2);
+  }
+  document.getElementById("pX").value = cx;
+  document.getElementById("pZ").value = cz;
+  document.getElementById("pW").value = w;
+  document.getElementById("pH").value = h;
+  const note = document.getElementById("pSelected");
+  note.textContent = `Selected: centre ${cx}, ${cz} · ${w}×${h} blocks`;
+  note.hidden = false;
+  endAreaSelect();
+  document.getElementById("pName").focus();
+  showMsg("Area captured — name it and click “Add box”.");
 }
 
 function loadPlaces() {
@@ -542,8 +677,9 @@ function removePlace(id) {
 }
 
 function goToPlace(p) {
-  const half = Math.max(p.size / 2, 8);
-  map.fitBounds([blockToLatLng(p.x - half, p.z - half), blockToLatLng(p.x + half, p.z + half)], {
+  const halfW = Math.max(p.w / 2, 8);
+  const halfH = Math.max(p.h / 2, 8);
+  map.fitBounds([blockToLatLng(p.x - halfW, p.z - halfH), blockToLatLng(p.x + halfW, p.z + halfH)], {
     maxZoom: meta.maxZoom + 1,
     padding: [50, 50],
   });
@@ -554,14 +690,20 @@ function renderPlaces() {
   if (!placeLayer) return;
   placeLayer.clearLayers();
   for (const p of places) {
-    const half = p.size / 2;
+    const halfW = p.w / 2;
+    const halfH = p.h / 2;
     const rect = L.rectangle(
-      [blockToLatLng(p.x - half, p.z - half), blockToLatLng(p.x + half, p.z + half)],
+      [blockToLatLng(p.x - halfW, p.z - halfH), blockToLatLng(p.x + halfW, p.z + halfH)],
       { color: p.color, weight: 2, fillColor: p.color, fillOpacity: 0.18 }
     );
-    rect.bindTooltip(p.name, { permanent: true, direction: "center", className: "placeLabel" });
     rect.on("click", () => goToPlace(p));
     rect.addTo(placeLayer);
+    // Label as a DivIcon marker (cleans up with clearLayers, unlike a permanent tooltip).
+    L.marker(blockToLatLng(p.x, p.z), {
+      icon: L.divIcon({ className: "place-label", iconSize: [0, 0], html: `<span>${escapeHtml(p.name)}</span>` }),
+      interactive: false,
+      keyboard: false,
+    }).addTo(placeLayer);
   }
 
   const list = document.getElementById("placesList");
@@ -577,14 +719,19 @@ function renderPlaces() {
     nm.textContent = p.name;
     nm.title = "Go to " + p.name;
     nm.addEventListener("click", () => goToPlace(p));
-    const del = document.createElement("button");
-    del.className = "del";
-    del.textContent = "✕";
-    del.title = "Delete";
-    del.addEventListener("click", () => removePlace(p.id));
-    row.append(sw, nm, del);
+    row.append(sw, nm);
+    if (editMode) {
+      const del = document.createElement("button");
+      del.className = "del";
+      del.textContent = "✕";
+      del.title = "Delete";
+      del.addEventListener("click", () => removePlace(p.id));
+      row.append(del);
+    }
     list.appendChild(row);
   }
+  const empty = document.getElementById("placesEmpty");
+  if (empty) empty.hidden = places.length > 0;
 }
 
 function exportPlaces() {
