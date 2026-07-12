@@ -15,6 +15,9 @@ let meta = null;
 let biomes = null; // { originChunkX, originChunkZ, chunksX, chunksZ, blocksPerCell, palette, grid:Int32Array }
 let gridCanvas = null;
 let gridCtx = null;
+let places = []; // user-added labelled boxes: { id, name, x, z, size, color }
+let placeLayer = null;
+let highlightBiome = null; // { index, name } while a biome-search highlight is showing
 
 init();
 
@@ -89,7 +92,6 @@ function setupMap() {
     zoomSnap: 0,
     zoomDelta: 0.5,
     wheelPxPerZoomLevel: 120,
-    preferCanvas: true,
   });
 
   // In Simple CRS, a pixel (x, y) of the full-resolution image maps to this lat/lng.
@@ -124,6 +126,15 @@ function setupMap() {
   setupGrid();
   setupReadout();
   setupContextPopup();
+  setupPlaces();
+  setupSearch();
+}
+
+/** Leaflet lat/lng (pixel point) of a world block coordinate — inverse of toBlock. */
+function blockToLatLng(x, z) {
+  const px = (x - meta.originBlockX) / meta.blocksPerPixel;
+  const pz = (z - meta.originBlockZ) / meta.blocksPerPixel;
+  return map.unproject([px, pz], meta.maxZoom);
 }
 
 /* ----------------------------------------------------------------------- Right-click popup */
@@ -146,7 +157,8 @@ function setupContextPopup() {
     const html =
       `<div class="cp-coord">X ${bx}, Z ${bz}</div>` +
       `<div class="cp-chunk">chunk ${cx}, ${cz}</div>` +
-      biomeLine;
+      biomeLine +
+      `<button class="cp-add" onclick="addPlaceHere(${bx}, ${bz})">+ Add place here</button>`;
 
     L.popup({ className: "coordPopup", closeButton: true, autoPan: false })
       .setLatLng(e.latlng)
@@ -154,6 +166,15 @@ function setupContextPopup() {
       .openOn(map);
   });
 }
+
+/** Called from the right-click popup: opens the Places panel with the clicked coords pre-filled. */
+window.addPlaceHere = function (bx, bz) {
+  map.closePopup();
+  openPlacesPanel();
+  document.getElementById("pX").value = bx;
+  document.getElementById("pZ").value = bz;
+  document.getElementById("pName").focus();
+};
 
 /* ----------------------------------------------------------------------- Coordinates */
 
@@ -215,7 +236,7 @@ function drawGrid() {
   gridCanvas.width = size.x;
   gridCanvas.height = size.y;
   gridCtx.clearRect(0, 0, size.x, size.y);
-  if (!wantChunk && !wantRegion) return;
+  if (!wantChunk && !wantRegion && !highlightBiome) return;
 
   // Visible block range, from the two screen corners (padded by one step).
   const tl = map.project(map.containerPointToLatLng([0, 0]), meta.maxZoom);
@@ -228,11 +249,39 @@ function drawGrid() {
   // Pixels on screen between two blocks at the current zoom.
   const pxPerBlock = (1 / meta.blocksPerPixel) * Math.pow(2, map.getZoom() - meta.maxZoom);
 
+  if (highlightBiome) {
+    drawBiomeHighlight(bx0, bx1, bz0, bz1);
+  }
   if (wantRegion && pxPerBlock * 512 >= 6) {
     drawLines(512, bx0, bx1, bz0, bz1, "rgba(224,165,42,0.55)", 1.5);
   }
   if (wantChunk && pxPerBlock * 16 >= 5) {
     drawLines(16, bx0, bx1, bz0, bz1, "rgba(120,140,160,0.40)", 1);
+  }
+}
+
+/** Fills every visible chunk cell belonging to the highlighted biome with a translucent wash. */
+function drawBiomeHighlight(bx0, bx1, bz0, bz1) {
+  if (!biomes) return;
+  const cell = biomes.blocksPerCell;
+  const cx0 = Math.floor(bx0 / cell);
+  const cx1 = Math.floor(bx1 / cell);
+  const cz0 = Math.floor(bz0 / cell);
+  const cz1 = Math.floor(bz1 / cell);
+  gridCtx.fillStyle = "rgba(224,165,42,0.40)";
+  for (let cz = cz0; cz <= cz1; cz++) {
+    const row = cz - biomes.originChunkZ;
+    if (row < 0 || row >= biomes.chunksZ) continue;
+    for (let cx = cx0; cx <= cx1; cx++) {
+      const col = cx - biomes.originChunkX;
+      if (col < 0 || col >= biomes.chunksX) continue;
+      if (biomes.grid[row * biomes.chunksX + col] !== highlightBiome.index) continue;
+      const x = blockToContainerX(cx * cell);
+      const y = blockToContainerY(cz * cell);
+      const w = blockToContainerX((cx + 1) * cell) - x;
+      const h = blockToContainerY((cz + 1) * cell) - y;
+      gridCtx.fillRect(x, y, Math.ceil(w) + 1, Math.ceil(h) + 1);
+    }
   }
 }
 
@@ -253,4 +302,298 @@ function drawLines(step, bx0, bx1, bz0, bz1, color, lineWidth) {
     gridCtx.lineTo(size.x, y);
   }
   gridCtx.stroke();
+}
+
+/* ----------------------------------------------------------------------- Search */
+
+function setupSearch() {
+  const input = document.getElementById("search");
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      doSearch(input.value);
+    } else if (e.key === "Escape") {
+      clearBiomeHighlight();
+    }
+  });
+}
+
+/** Runs a search: coordinates ("X Z"), then a place name, then a biome. */
+function doSearch(raw) {
+  const q = raw.trim();
+  if (!q) return;
+  clearBiomeHighlight(true);
+
+  const coords = parseCoords(q);
+  if (coords) {
+    goToCoords(coords[0], coords[1]);
+    return;
+  }
+  const place =
+    places.find((p) => p.name.toLowerCase() === q.toLowerCase()) ||
+    places.find((p) => p.name.toLowerCase().includes(q.toLowerCase()));
+  if (place) {
+    goToPlace(place);
+    showMsg(`Went to place “${place.name}”`);
+    return;
+  }
+  const biome = findBiome(q);
+  if (biome) {
+    highlightBiomeSearch(biome);
+    return;
+  }
+  showMsg(`No coordinate, place or biome matches “${q}”.`);
+}
+
+/** Two signed integers (with optional x/z, commas, spaces) => [x, z]; otherwise null. */
+function parseCoords(q) {
+  const nums = q.match(/-?\d+/g);
+  if (!nums || nums.length !== 2) return null;
+  // Reject if anything other than digits / minus / x,z / separators remains (so named places win).
+  const rest = q.replace(/-?\d+/g, "").replace(/[xzXZ,;:\s]/g, "");
+  if (rest.length) return null;
+  return [parseInt(nums[0], 10), parseInt(nums[1], 10)];
+}
+
+function goToCoords(x, z) {
+  const ll = blockToLatLng(x + 0.5, z + 0.5);
+  map.setView(ll, Math.min(map.getMaxZoom(), meta.maxZoom + 1));
+  pulseAt(ll);
+  const biome = biomeAt(x, z);
+  showMsg(`Went to X ${x}, Z ${z}` + (biome ? ` · ${prettyBiome(biome)}` : ""));
+}
+
+let pulseMarker = null;
+/** Briefly rings a location so a searched coordinate is easy to spot. */
+function pulseAt(ll) {
+  if (pulseMarker) map.removeLayer(pulseMarker);
+  pulseMarker = L.circleMarker(ll, { radius: 11, color: "#ffd54a", weight: 3, fill: false }).addTo(map);
+  setTimeout(() => {
+    if (pulseMarker) {
+      map.removeLayer(pulseMarker);
+      pulseMarker = null;
+    }
+  }, 2600);
+}
+
+/** Finds a palette biome whose name matches the query, preferring an exact name over a partial one. */
+function findBiome(q) {
+  if (!biomes) return null;
+  const ql = q.toLowerCase();
+  let partial = null;
+  for (let i = 1; i < biomes.palette.length; i++) {
+    const id = biomes.palette[i];
+    if (!id) continue;
+    const pretty = prettyBiome(id).toLowerCase();
+    if (pretty === ql) {
+      return { index: i, name: prettyBiome(id) };
+    }
+    if (!partial && (pretty.includes(ql) || id.toLowerCase().includes(ql))) {
+      partial = { index: i, name: prettyBiome(id) };
+    }
+  }
+  return partial;
+}
+
+function highlightBiomeSearch(b) {
+  highlightBiome = b;
+  const target = nearestBiomeCell(b.index);
+  if (target) {
+    map.setView(blockToLatLng(target.x, target.z), Math.max(map.getZoom(), meta.maxZoom - 3));
+  }
+  drawGrid();
+  showMsg(`Highlighting “${b.name}”. Press Esc to clear.`);
+}
+
+/** The matching biome cell nearest the current view centre (world block coords of its middle). */
+function nearestBiomeCell(index) {
+  const cb = toBlock(map.getCenter());
+  const cCol = Math.floor(cb.x / biomes.blocksPerCell) - biomes.originChunkX;
+  const cRow = Math.floor(cb.z / biomes.blocksPerCell) - biomes.originChunkZ;
+  let best = null;
+  let bestD = Infinity;
+  for (let row = 0; row < biomes.chunksZ; row++) {
+    for (let col = 0; col < biomes.chunksX; col++) {
+      if (biomes.grid[row * biomes.chunksX + col] !== index) continue;
+      const d = (col - cCol) ** 2 + (row - cRow) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = { col, row };
+      }
+    }
+  }
+  if (!best) return null;
+  const half = biomes.blocksPerCell / 2;
+  return {
+    x: (best.col + biomes.originChunkX) * biomes.blocksPerCell + half,
+    z: (best.row + biomes.originChunkZ) * biomes.blocksPerCell + half,
+  };
+}
+
+function clearBiomeHighlight(silent) {
+  if (!highlightBiome) return;
+  highlightBiome = null;
+  drawGrid();
+  if (!silent) showMsg("Cleared biome highlight.");
+}
+
+let msgTimer = null;
+function showMsg(text) {
+  const el = document.getElementById("searchMsg");
+  el.textContent = text;
+  el.hidden = false;
+  clearTimeout(msgTimer);
+  msgTimer = setTimeout(() => (el.hidden = true), 3800);
+}
+
+/* ----------------------------------------------------------------------- Places (labelled boxes) */
+
+const PLACES_KEY = "chunkmapper_places";
+let placeSeq = 1;
+
+function setupPlaces() {
+  placeLayer = L.layerGroup().addTo(map);
+  loadPlaces();
+  renderPlaces();
+
+  document.getElementById("placesBtn").addEventListener("click", () => {
+    const panel = document.getElementById("placesPanel");
+    panel.hidden = !panel.hidden;
+  });
+  document.getElementById("placesClose").addEventListener("click", () => {
+    document.getElementById("placesPanel").hidden = true;
+  });
+  document.getElementById("placeForm").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const name = document.getElementById("pName").value.trim();
+    const x = parseInt(document.getElementById("pX").value, 10);
+    const z = parseInt(document.getElementById("pZ").value, 10);
+    const size = Math.max(1, parseInt(document.getElementById("pSize").value, 10) || 64);
+    const color = document.getElementById("pColor").value;
+    if (!name || Number.isNaN(x) || Number.isNaN(z)) {
+      showMsg("A box needs a name and numeric X and Z.");
+      return;
+    }
+    addPlace({ name, x, z, size, color });
+    e.target.reset();
+    document.getElementById("pSize").value = 64;
+    document.getElementById("pColor").value = color;
+  });
+  document.getElementById("placesExport").addEventListener("click", exportPlaces);
+}
+
+function openPlacesPanel() {
+  document.getElementById("placesPanel").hidden = false;
+}
+
+function normalizePlace(p) {
+  return {
+    id: p.id || "p" + placeSeq++ + "_" + Date.now(),
+    name: String(p.name || "?"),
+    x: p.x | 0,
+    z: p.z | 0,
+    size: p.size || 64,
+    color: p.color || "#e0a52a",
+  };
+}
+
+function loadPlaces() {
+  try {
+    const s = localStorage.getItem(PLACES_KEY);
+    if (s) {
+      places = JSON.parse(s).map(normalizePlace);
+      return;
+    }
+  } catch (e) {
+    /* ignore */
+  }
+  // No local edits yet — load a committed places.json if the site has one.
+  fetch("places.json", { cache: "no-store" })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (Array.isArray(d) && places.length === 0) {
+        places = d.map(normalizePlace);
+        renderPlaces();
+      }
+    })
+    .catch(() => {});
+}
+
+function savePlaces() {
+  try {
+    localStorage.setItem(PLACES_KEY, JSON.stringify(places));
+  } catch (e) {
+    /* ignore */
+  }
+}
+
+function addPlace(p) {
+  const place = normalizePlace(p);
+  places.push(place);
+  savePlaces();
+  renderPlaces();
+  goToPlace(place);
+}
+
+function removePlace(id) {
+  places = places.filter((p) => p.id !== id);
+  savePlaces();
+  renderPlaces();
+}
+
+function goToPlace(p) {
+  const half = Math.max(p.size / 2, 8);
+  map.fitBounds([blockToLatLng(p.x - half, p.z - half), blockToLatLng(p.x + half, p.z + half)], {
+    maxZoom: meta.maxZoom + 1,
+    padding: [50, 50],
+  });
+}
+
+/** Rebuilds both the on-map boxes and the panel list from `places`. */
+function renderPlaces() {
+  if (!placeLayer) return;
+  placeLayer.clearLayers();
+  for (const p of places) {
+    const half = p.size / 2;
+    const rect = L.rectangle(
+      [blockToLatLng(p.x - half, p.z - half), blockToLatLng(p.x + half, p.z + half)],
+      { color: p.color, weight: 2, fillColor: p.color, fillOpacity: 0.18 }
+    );
+    rect.bindTooltip(p.name, { permanent: true, direction: "center", className: "placeLabel" });
+    rect.on("click", () => goToPlace(p));
+    rect.addTo(placeLayer);
+  }
+
+  const list = document.getElementById("placesList");
+  list.innerHTML = "";
+  for (const p of places) {
+    const row = document.createElement("div");
+    row.className = "place-item";
+    const sw = document.createElement("span");
+    sw.className = "swatch";
+    sw.style.background = p.color;
+    const nm = document.createElement("span");
+    nm.className = "pname";
+    nm.textContent = p.name;
+    nm.title = "Go to " + p.name;
+    nm.addEventListener("click", () => goToPlace(p));
+    const del = document.createElement("button");
+    del.className = "del";
+    del.textContent = "✕";
+    del.title = "Delete";
+    del.addEventListener("click", () => removePlace(p.id));
+    row.append(sw, nm, del);
+    list.appendChild(row);
+  }
+}
+
+function exportPlaces() {
+  const data = JSON.stringify(places.map(({ id, ...rest }) => rest), null, 2);
+  const blob = new Blob([data], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "places.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showMsg("Downloaded places.json — commit it next to index.html to share your boxes.");
 }
